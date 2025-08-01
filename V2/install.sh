@@ -62,8 +62,44 @@ fi
 log_progress "Installing SoX for speech-to-text..."
 if ! command -v sox &> /dev/null; then
     if [[ "$OS" == "linux" ]]; then
-        sudo apt-get update
-        $INSTALL_CMD sox
+        # Detect Linux distribution and install appropriate packages
+        if command -v apt-get &> /dev/null; then
+            log_progress "Updating package cache..."
+            sudo apt-get update
+            
+            # Try installing sox and related packages
+            log_progress "Installing SoX and audio libraries..."
+            if sudo apt-get install -y sox libsox-fmt-all; then
+                log_success "SoX installed via apt-get"
+            else
+                log_warning "Standard sox package failed, trying alternative approach..."
+                # Try installing universe repository for Ubuntu/Debian systems
+                if sudo apt-get install -y software-properties-common; then
+                    sudo add-apt-repository universe -y || true
+                    sudo apt-get update
+                    sudo apt-get install -y sox libsox-fmt-all || true
+                fi
+            fi
+        elif command -v yum &> /dev/null; then
+            log_progress "Installing SoX via yum (RHEL/CentOS)..."
+            sudo yum install -y sox
+        elif command -v dnf &> /dev/null; then
+            log_progress "Installing SoX via dnf (Fedora)..."
+            sudo dnf install -y sox
+        elif command -v zypper &> /dev/null; then
+            log_progress "Installing SoX via zypper (openSUSE)..."
+            sudo zypper install -y sox
+        elif command -v pacman &> /dev/null; then
+            log_progress "Installing SoX via pacman (Arch)..."
+            sudo pacman -S --noconfirm sox
+        else
+            log_warning "Unknown package manager, please install SoX manually"
+            log_info "Common install commands:"
+            log_step "   Ubuntu/Debian: sudo apt-get install sox libsox-fmt-all"
+            log_step "   RHEL/CentOS: sudo yum install sox"
+            log_step "   Fedora: sudo dnf install sox"
+            log_step "   Arch: sudo pacman -S sox"
+        fi
     else
         $INSTALL_CMD sox
     fi
