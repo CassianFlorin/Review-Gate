@@ -1,0 +1,21 @@
+# 云部署专用依赖
+mcp>=1.9.2
+Pillow>=10.0.0
+asyncio
+typing-extensions>=4.14.0
+
+# 云环境可选依赖（语音功能在云环境中可能被禁用）
+# faster-whisper>=1.0.0
+
+# 云存储支持（可选）
+# boto3>=1.26.0  # AWS S3
+# google-cloud-storage>=2.0.0  # Google Cloud Storage
+
+# 监控和日志
+structlog>=23.0.0
+prometheus-client>=0.17.0
+
+# Web服务支持（如果需要HTTP接口）
+# fastapi>=0.100.0
+# uvicorn>=0.23.0
+# websockets>=11.0.0 

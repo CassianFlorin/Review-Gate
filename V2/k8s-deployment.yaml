@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: review-gate-v2
+  labels:
+    app: review-gate-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: review-gate-v2
+  template:
+    metadata:
+      labels:
+        app: review-gate-v2
+    spec:
+      containers:
+      - name: review-gate-v2
+        image: review-gate-v2:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+        env:
+        - name: CLOUD_DEPLOYMENT
+          value: "true"
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: REVIEW_GATE_MODE
+          value: "cloud_deployment"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: TEMP_DIR
+          value: "/tmp"
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+        - name: temp
+          mountPath: /tmp
+      volumes:
+      - name: logs
+        emptyDir: {}
+      - name: temp
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: review-gate-v2-service
+  labels:
+    app: review-gate-v2
+spec:
+  selector:
+    app: review-gate-v2
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: review-gate-v2-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: review-gate-v2.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: review-gate-v2-service
+            port:
+              number: 80 

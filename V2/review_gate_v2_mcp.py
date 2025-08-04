@@ -22,12 +22,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
-# Speech-to-text imports
-try:
-    from faster_whisper import WhisperModel
-    WHISPER_AVAILABLE = True
-except ImportError:
+# 云部署环境检测
+CLOUD_DEPLOYMENT = os.getenv('CLOUD_DEPLOYMENT', 'false').lower() == 'true'
+REVIEW_GATE_MODE = os.getenv('REVIEW_GATE_MODE', 'cursor_integration')
+
+# Speech-to-text imports (在云环境中可能禁用)
+if not CLOUD_DEPLOYMENT:
+    try:
+        from faster_whisper import WhisperModel
+        WHISPER_AVAILABLE = True
+    except ImportError:
+        WHISPER_AVAILABLE = False
+else:
     WHISPER_AVAILABLE = False
+    print("Cloud deployment detected - speech-to-text disabled")
 
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
@@ -43,11 +51,13 @@ from mcp.types import (
     EmbeddedResource,
 )
 
-# Cross-platform temp directory helper
+# 跨平台临时目录助手 - 支持云部署
 def get_temp_path(filename: str) -> str:
-    """Get cross-platform temporary file path"""
-    # Use /tmp/ for macOS and Linux, system temp for Windows
-    if os.name == 'nt':  # Windows
+    """获取跨平台临时文件路径，支持云部署"""
+    if CLOUD_DEPLOYMENT:
+        # 云环境中使用指定的临时目录
+        temp_dir = os.getenv('TEMP_DIR', '/tmp')
+    elif os.name == 'nt':  # Windows
         temp_dir = tempfile.gettempdir()
     else:  # macOS and Linux
         temp_dir = '/tmp'
@@ -94,14 +104,16 @@ class ReviewGateServer:
         self._last_attachments = []
         self._whisper_model = None
         
-        # Initialize Whisper model with comprehensive error handling
+        # 云部署环境检测
+        self.cloud_deployment = CLOUD_DEPLOYMENT
+        self.review_gate_mode = REVIEW_GATE_MODE
+        
+        # 初始化Whisper模型（仅在非云环境中）
         self._whisper_error = None
-        if WHISPER_AVAILABLE:
+        if WHISPER_AVAILABLE and not self.cloud_deployment:
             self._whisper_model = self._initialize_whisper_model()
-        else:
-            logger.warning("⚠️ Faster-Whisper not available - speech-to-text will be disabled")
-            logger.warning("💡 To enable speech features, install: pip install faster-whisper")
-            self._whisper_error = "faster-whisper package not installed"
+        elif self.cloud_deployment:
+            logger.info("Cloud deployment mode - Whisper model initialization skipped")
             
         # Start speech trigger monitoring
         self._start_speech_monitoring()
@@ -113,61 +125,33 @@ class ReviewGateServer:
                 handler.flush()
 
     def _initialize_whisper_model(self):
-        """Initialize Whisper model with comprehensive error handling and fallbacks"""
-        try:
-            logger.info("🎤 Loading Faster-Whisper model for speech-to-text...")
-            
-            # Try different model configurations in order of preference
-            model_configs = [
-                {"model": "base", "device": "cpu", "compute_type": "int8"},
-                {"model": "tiny", "device": "cpu", "compute_type": "int8"},
-                {"model": "base", "device": "cpu", "compute_type": "float32"},
-                {"model": "tiny", "device": "cpu", "compute_type": "float32"},
-            ]
-            
-            for i, config in enumerate(model_configs):
-                try:
-                    logger.info(f"🔄 Attempting to load {config['model']} model (attempt {i+1}/{len(model_configs)})")
-                    model = WhisperModel(config['model'], device=config['device'], compute_type=config['compute_type'])
-                    
-                    # Test the model with a quick inference to ensure it works
-                    logger.info(f"✅ Successfully loaded {config['model']} model with {config['compute_type']}")
-                    logger.info(f"📊 Model info - Device: {config['device']}, Compute: {config['compute_type']}")
-                    return model
-                    
-                except Exception as model_error:
-                    logger.warning(f"⚠️ Failed to load {config['model']} model: {model_error}")
-                    if i == len(model_configs) - 1:
-                        # This was the last attempt
-                        raise model_error
-                    continue
-            
-        except ImportError as import_error:
-            error_msg = f"faster-whisper import failed: {import_error}"
-            logger.error(f"❌ {error_msg}")
-            self._whisper_error = error_msg
+        """初始化Whisper模型，支持云部署环境"""
+        if self.cloud_deployment:
+            logger.info("Cloud deployment mode - skipping Whisper model initialization")
             return None
             
+        try:
+            # 在云环境中，我们可以使用更小的模型或禁用语音功能
+            model_size = "base" if self.cloud_deployment else "small"
+            logger.info(f"Initializing Whisper model: {model_size}")
+            
+            # 检查是否有可用的GPU
+            device = "cuda" if not self.cloud_deployment else "cpu"
+            compute_type = "float16" if not self.cloud_deployment else "int8"
+            
+            model = WhisperModel(
+                model_size,
+                device=device,
+                compute_type=compute_type,
+                local_files_only=False
+            )
+            
+            logger.info(f"✅ Whisper model initialized successfully on {device}")
+            return model
+            
         except Exception as e:
-            error_msg = f"Whisper model initialization failed: {e}"
+            error_msg = f"Failed to initialize Whisper model: {str(e)}"
             logger.error(f"❌ {error_msg}")
-            
-            # Check for common issues and provide specific guidance
-            if "CUDA" in str(e):
-                logger.error("💡 CUDA issue detected - make sure you have CPU-only version")
-                logger.error("💡 Try: pip uninstall faster-whisper && pip install faster-whisper")
-                error_msg += " (CUDA compatibility issue)"
-            elif "Visual Studio" in str(e) or "MSVC" in str(e):
-                logger.error("💡 Visual C++ issue detected on Windows")
-                logger.error("💡 Install Visual Studio Build Tools or use pre-built wheels")
-                error_msg += " (Visual C++ dependency missing)"
-            elif "Permission" in str(e):
-                logger.error("💡 Permission issue - check file access and antivirus")
-                error_msg += " (Permission denied)"
-            elif "disk space" in str(e).lower() or "no space" in str(e).lower():
-                logger.error("💡 Disk space issue - whisper models require storage")
-                error_msg += " (Insufficient disk space)"
-            
             self._whisper_error = error_msg
             return None
 

@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  review-gate-v2:
+    build: .
+    container_name: review-gate-v2
+    environment:
+      - CLOUD_DEPLOYMENT=true
+      - PYTHONUNBUFFERED=1
+      - REVIEW_GATE_MODE=cloud_deployment
+      - LOG_LEVEL=INFO
+      - TEMP_DIR=/tmp
+    volumes:
+      - ./logs:/app/logs
+      - /tmp:/tmp
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    networks:
+      - review-gate-network
+
+networks:
+  review-gate-network:
+    driver: bridge 
