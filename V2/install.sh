@@ -81,7 +81,11 @@ if ! command -v sox &> /dev/null; then
                 fi
             fi
         elif command -v yum &> /dev/null; then
-            log_progress "Installing SoX via yum (RHEL/CentOS)..."
+            log_progress "Installing SoX via yum (RHEL/CentOS/OpenCloud OS)..."
+            # Try EPEL repository first for better SoX support
+            if sudo yum install -y epel-release 2>/dev/null; then
+                log_info "EPEL repository enabled"
+            fi
             sudo yum install -y sox
         elif command -v dnf &> /dev/null; then
             log_progress "Installing SoX via dnf (Fedora)..."
@@ -96,9 +100,10 @@ if ! command -v sox &> /dev/null; then
             log_warning "Unknown package manager, please install SoX manually"
             log_info "Common install commands:"
             log_step "   Ubuntu/Debian: sudo apt-get install sox libsox-fmt-all"
-            log_step "   RHEL/CentOS: sudo yum install sox"
+            log_step "   RHEL/CentOS/OpenCloud OS: sudo yum install epel-release && sudo yum install sox"
             log_step "   Fedora: sudo dnf install sox"
             log_step "   Arch: sudo pacman -S sox"
+            log_step "   From source: wget sox source, ./configure, make, make install"
         fi
     else
         $INSTALL_CMD sox
@@ -161,12 +166,37 @@ cp "$SCRIPT_DIR/requirements_simple.txt" "$REVIEW_GATE_DIR/"
 log_progress "Creating Python virtual environment..."
 cd "$REVIEW_GATE_DIR"
 
-# Install python3-venv on Linux if needed
+# Install Python virtual environment support on Linux if needed
 if [[ "$OS" == "linux" ]]; then
-    if ! dpkg -s python3-venv >/dev/null 2>&1; then
-        log_progress "Installing Python virtual environment support..."
-        sudo apt-get update
-        sudo apt-get install -y python3-venv
+    log_progress "Installing Python virtual environment support..."
+    
+    # Check which package manager is available and install appropriate packages
+    if command -v apt-get &> /dev/null; then
+        # Ubuntu/Debian systems
+        if ! dpkg -s python3-venv >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y python3-venv
+        fi
+    elif command -v yum &> /dev/null; then
+        # RHEL/CentOS/OpenCloud OS systems
+        log_progress "Installing Python virtual environment support via yum..."
+        # python3-virtualenv is the correct package for RHEL-based systems
+        if ! rpm -q python3-virtualenv >/dev/null 2>&1; then
+            sudo yum install -y python3-virtualenv
+        fi
+        # Also ensure pip is available
+        if ! rpm -q python3-pip >/dev/null 2>&1; then
+            sudo yum install -y python3-pip
+        fi
+    elif command -v dnf &> /dev/null; then
+        # Fedora and newer RHEL systems
+        log_progress "Installing Python virtual environment support via dnf..."
+        if ! rpm -q python3-virtualenv >/dev/null 2>&1; then
+            sudo dnf install -y python3-virtualenv python3-pip
+        fi
+    else
+        log_warning "Unknown package manager, attempting to create venv anyway..."
+        log_info "If venv creation fails, please install python3-virtualenv manually"
     fi
 fi
 
